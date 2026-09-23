@@ -1,0 +1,55 @@
+# ---------------- Build output (Keil MDK / ARMCC) ----------------
+Objects/
+Listings/
+DebugConfig/
+RTE/
+*.o
+*.d
+*.crf
+*.dep
+*.lst
+*.lnp
+*.axf
+*.elf
+*.hex
+*.bin
+*.map
+*.htm
+*.plg
+*.iex
+*.sct
+*.i
+*.src
+*.uvguix.*
+*.uvoptx
+*.bak
+JLinkLog.txt
+JLinkSettings.ini
+
+# ---------------- STM32CubeMX ----------------
+*.mx.bak
+
+# ---------------- Editor / IDE ----------------
+.vscode/
+.idea/
+*.swp
+*~
+
+# ---------------- Archives / large files ----------------
+*.zip
+*.rar
+*.7z
+*.tar
+*.gz
+
+# ---------------- OS ----------------
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# ---------------- Temp / logs / python ----------------
+*.log
+*.tmp
+__pycache__/
+*.py[cod]
+.venv/
