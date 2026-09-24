@@ -31,6 +31,7 @@
 #define CFG_KEY_COUNT          2        /* v1 = SOS + MODE；补配 PB4/PB5 后改 4 */
 #define CFG_OLED_ENABLE        1        /* 0 = 完全不碰 OLED（无屏调试） */
 #define CFG_OLED_PROBE_MS      5        /* OLED 在线探测超时 */
+#define CFG_OLED_PAGES_PER_FLUSH 2      /* 每次刷新最多写几页（1 页 ≈ 3ms @400kHz） */
 
 /* 固件版本（banner / ver 命令） */
 #define CFG_FW_VERSION         "v0.1.0"

@@ -2,10 +2,11 @@
  * @file    app.c
  * @brief   应用初始化与主循环（上电顺序见 ARCHITECTURE.md 6.4）
  * @note    原则：任何"非安全关键"外设初始化失败都不允许卡死启动；只记错误码 + 日志。
- *          电机子系统是唯一例外：初始化失败即禁止一切运动（后续由 FSM 接管为 ST_FAULT）。
+ *          电机子系统是唯一例外：初始化失败即禁止一切运动（阶段 4-D 由 FSM 接管为 ST_FAULT）。
  * @version 0.1  (2026-09-24)
  */
 #include "app.h"
+#include "app_ui.h"
 #include "svc_log.h"
 #include "svc_sched.h"
 #include "svc_shell.h"
@@ -16,12 +17,29 @@
 #include "drv_motor.h"
 #include "drv_alarm.h"
 #include "drv_us.h"
+#include "drv_imu.h"
+#include "drv_oled.h"
 #include "drv_batt.h"
 #include "drv_key.h"
+#include "drv_mag.h"
+#include "drv_bt.h"
 #include "cfg.h"
 #include "board.h"
 
 #define LOG_TAG "APP "
+
+/* ==================== 状态/静音查询（供 UI 显示） ==================== */
+static const char *s_state_name = "IDLE";      /* 阶段 4-D 由 app_fsm 更新 */
+
+const char *app_state_str(void)
+{
+  return s_state_name;
+}
+
+uint8_t alarm_muted(void)
+{
+  return (alarm_get_enable() == 0u) ? 1u : 0u;
+}
 
 /* ==================== 调度器任务包装 ====================
  * 调度器任务签名是 void(void)，而驱动的 update 返回 err_t（错误已在驱动内部记账），
@@ -32,6 +50,8 @@ static void app_alarm_task(void) { (void)alarm_update(); }
 static void app_us_task(void)    { (void)us_update();    }
 static void app_batt_task(void)  { (void)batt_update();  }
 static void app_key_task(void)   { (void)key_update();   }
+static void app_imu_task(void)   { (void)imu_update();   }
+static void app_mag_task(void)   { (void)mag_update();   }
 
 void app_hb_task(void)
 {
@@ -136,24 +156,61 @@ void app_init(void)
     (void)key_shell_register();
   }
 
-  /* 11. I²C 总线自检（结果直接打印，最省事的接线验证） */
+  /* 11. 蓝牙骨架（P2 预留：只留收发与钩子） */
+  e = bt_init();
+  if (e != ERR_OK) {
+    err_record(MOD_BT, e);
+  } else {
+    (void)bt_shell_register();
+  }
+
+  /* 12. I²C 总线自检 + 挂总线设备（MPU6050 / QMC5883L / OLED） */
   (void)bsp_i2c_init();
   app_i2c_report();
 
-  /* 12. 任务注册 */
+  e = imu_init();
+  if (e != ERR_OK) {
+    err_record(MOD_IMU, e);
+    LOG_W(LOG_TAG, "imu_init failed: %s (fall detection degraded)", err_str(e));
+  } else {
+    (void)imu_shell_register();
+  }
+
+  e = mag_init();
+  if (e != ERR_OK) {
+    err_record(MOD_MAG, e);
+    LOG_W(LOG_TAG, "mag_init failed: %s (P2 feature)",
+          err_str(e));
+  } else {
+    (void)mag_shell_register();
+  }
+
+  e = oled_init();
+  if (e != ERR_OK) {
+    LOG_W(LOG_TAG, "oled_init failed: %s (continuing headless)", err_str(e));
+  } else {
+    (void)oled_shell_register();
+    app_ui_boot_screen();
+  }
+
+  /* 13. 任务注册 */
   svc_sched_init();
   (void)svc_sched_add("shell",  svc_shell_task,  10u);
   (void)svc_sched_add("motor",  app_motor_task,  10u);   /* 软启动斜坡/换向保护 */
   (void)svc_sched_add("alarm",  app_alarm_task,  10u);   /* 报警 pattern 推进 */
   (void)svc_sched_add("us",     app_us_task,     20u);   /* 内部按 us_period_ms 节流触发 */
   (void)svc_sched_add("key",    app_key_task,    20u);   /* 去抖 + 事件 */
+  (void)svc_sched_add("imu",    app_imu_task, (uint32_t)g_cfg.imu_period_ms);
+  (void)svc_sched_add("ui",     app_ui_task,  (uint32_t)g_cfg.ui_period_ms);
   (void)svc_sched_add("batt",   app_batt_task, (uint32_t)g_cfg.batt_period_ms);
+  (void)svc_sched_add("mag",    app_mag_task,   100u);
+  (void)svc_sched_add("bt",     bt_task,        100u);
   (void)svc_sched_add("hb",     app_hb_task,    500u);   /* 心跳灯 1Hz */
 
   LOG_I(LOG_TAG, "app_init done, %u task(s) running", (unsigned)svc_sched_count());
-  LOG_I(LOG_TAG, "tips: help | us | batt | key | motor | alarm | i2c | cfg | err | tasks");
+  LOG_I(LOG_TAG, "tips: help | us | imu | batt | key | oled | mag | bt | motor | alarm | cfg | err | tasks");
 
-  /* 13. 就绪提示音（两短声）：听得见就说明蜂鸣器通路 OK */
+  /* 14. 就绪提示音（两短声）：听得见就说明蜂鸣器通路 OK */
   (void)alarm_play(ALARM_EV_BOOT_OK);
 }
 
