@@ -115,7 +115,7 @@
 | **偏差 3** | 目录名 `HAL_SMART_STICK`、工程名 `HAL_OLED` 与指南原名 `SmartStick` 不一致 → **采纳现状**，文档已按实际改写 |
 | **待整改** | `Delay.c` 直接操作 SysTick（会停掉 HAL 1ms 时基）→ 阶段 4 由我改造为 TIM4 基准（见 `ARCHITECTURE.md` 5.2） |
 
-### 阶段 4：代码实现（我做）⏳ 进行中（基础框架 ✅ / 驱动层 ✅ / 业务层 ← 当前位置）
+### 阶段 4：代码实现（我做）✅ 已完成（2026-09-24）
 
 - 代码位置：`demo/HAL_SMART_STICK/Core/{Inc,Src}/user/**`（CubeMX 不管理的独立目录）。
 - **① 基础框架 ✅（2026-09-24）**：`err`(错误码) / `cfg`(参数表) / `svc_log`(五级日志) / `svc_sched`（合作式调度）/ `svc_shell`（行编辑 + 9 个基础命令）/ `bsp`(time/uart/gpio/i2c) / `board.h`（引脚门面）；`main.c` 只加三行钩子；`Delay.c` 已整改为 TIM4 基准。
@@ -211,8 +211,8 @@ smart_sti/                          ← Git 仓库根（远程：github.com/ciol
 | `demo/docs/ARCHITECTURE.md` | 2 | 我 | ✅ 已产出 |
 | `demo/docs/CODE_STANDARD.md` | 2 | 我 | ✅ 已产出 |
 | `demo/HAL_SMART_STICK/`（CubeMX Keil 工程） | 3 | 你 | ✅ 已完成并审查 |
-| `demo/HAL_SMART_STICK/Core/*/user/`（全部电控代码） | 4 | 我 | ⏳ 进行中 |
-| `demo/docs/VERIFY.md` | 5 | 我 | ⏳ |
+| `demo/HAL_SMART_STICK/Core/*/user/`（全部电控代码） | 4 | 我 | ✅ 已完成（基础框架 + 9 驱动 + 业务层 + 整合；`UV4 -b` 编译 0 Error/0 Warning） |
+| `demo/docs/VERIFY.md` | 5 | 我 | ✅ 已产出 |
 | 调试记录与修复迭代 | 6 | 你 + 我 | ⏳ |
 
 ---

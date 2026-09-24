@@ -353,9 +353,18 @@ F_CONFIRM_PENDING ──持续 2 s 姿态仍异常──► 触发 FALL 事件 �
 任一阶段条件不满足 → 回 F_IDLE；触发后 10 s 冷却期内不重复触发
 ```
 
-- 姿态角用**互补滤波**：`a = 0.98×(a + gyro×dt) + 0.02×acc_angle`（不依赖 DMP，省 Flash/RAM）。
-- 阈值全部集中在 `cfg.h`（`CFG_FALL_FREEFALL_G`、`CFG_FALL_IMPACT_G`、`CFG_FALL_TILT_DEG`、`CFG_FALL_CONFIRM_MS`），现场可调。
-- 局限（写进 VERIFY）：**跌倒检测是启发式**，剧烈晃动可能误报、缓慢躺倒可能漏报；v1 目标"能演示、可调参、不吓人"。
+**实际实现（2026-09-24，与上方示意略有出入，以此为准）**：
+
+| 环节 | 实现 | 阈值参数 |
+|---|---|---|
+| 自由落体 | `acc_norm_mg < fall_freefall_mg` | `fall_freefall_mg`(400mg) / `fall_freefall_ms`(30ms) |
+| 撞击 | 随后 500ms 内 `acc_norm_mg > fall_impact_mg` | `fall_impact_mg`(2200mg) |
+| 姿态确认 | `tilt_sin_pct ≥ sin(fall_tilt_deg10)` 持续 `fall_confirm_ms` | `fall_tilt_deg10`(550=55°) / `fall_confirm_ms`(2000ms) |
+| 误报抑制 | 任一环节不满足即回 `F_IDLE`；触发后 `fall_cooldown_ms`(10s) 内不重复 | `fall_cooldown_ms` |
+
+- **v1 不做互补滤波、不用浮点/三角函数**：姿态指标改用整数 `tilt_sin_pct = 100×sin(与竖直夹角)`（三角函数由查表插值近似，见 `drv_imu.c` 的 `isqrt` 与 `s_sin_tbl`）。这样省掉 math 库与滤波状态，Flash 更省、行为更可预测；陀螺仪数据仍采集（`gyro_norm_d10`），留给 v2 的闭环/滤波使用。
+- 阈值全部在 `cfg.h`，现场 `cfg set` 即可改（例：`cfg set fall_tilt_deg10 650`）。
+- 局限（已写进 `VERIFY.md`）：**跌倒检测是启发式**——剧烈晃动可能误报、缓慢躺倒可能漏报；v1 目标是"能演示、可调参、不吓人"。
 
 ### 8.4 报警联动（`app_alarm`）
 
@@ -418,6 +427,44 @@ motor_set(MOTOR_L, DIR_FWD, duty_l);  motor_set(MOTOR_R, DIR_FWD, duty_r);
 - `GUIDE_CMD_TURN_TO`：需 QMC5883L 校准后的航向闭环；
 - 差速转向的**判定输入**（第二路超声波左右测距、磁力计航向）在 v1 均不存在，故一律 `ERR_UNSUPPORTED`，避免"看起来能用其实乱转"。
 - 具体转向策略（何时转、转多少度、如何回正）**到阶段 4 后半段与你确认后再实现**（O7 约定）。
+
+---
+
+### 8.6 ★绕行（detour）策略 —— 已实现、默认关闭、可在线调参
+
+**为什么默认关闭**：单路前向超声波看不到两侧，"转向后是否真的绕开"只能靠"转完再测距"来试探，**必须有现场数据才有意义**。
+
+**状态机**（`app_guide.c`，50ms 步进；只有 `detour_enable=1` 才可能启动）：
+
+```
+            遇障停车 ≥ avoid_stuck_ms
+  GUIDE ───────────────────────► DT_SPIN  (原地转向 detour_spin_ms，速度 detour_spin_duty)
+                                     │ 时间到
+                                     ▼
+                                  DT_PROBE (直行试探 detour_fwd_ms，速度 = base × 60%)
+                                     │ 时间到 或 前方又贴近(L2)
+                                     ├─ 距离 ≥ detour_recheck_mm → 回直行（attempts 清零）
+                                     └─ 否则 attempt++ → 换方向 → 回 DT_SPIN
+  尝试次数 > detour_retry → 停车 + 冷却 detour_cooldown_ms（由报警层提示）
+```
+
+**安全约束（写死在代码里，不受参数影响）：**
+
+1. 传感器失效（L3）→ **立即放弃绕行**并停车；
+2. 试探过程中前方进入 L2 → 立刻中止本段试探，进入重试判定；
+3. 仅在 `ST_GUIDE`/`ST_DEGRADED` 且 `detour_enable=1` 时运行；SOS/FAULT 状态强制停车；
+4. 转向速度与直行速度都受 `motor_max_duty` 与降级限速（30%）双重约束。
+
+**现场调参顺序（建议）：**
+
+| 步骤 | 命令 | 看什么 |
+|---|---|---|
+| 1 | `guide spin L 700 400` / `guide spin R 700 400` | 转向速度是否合适（改 duty 参数） |
+| 2 | `cfg set detour_spin_ms 700`、`cfg set detour_fwd_ms 900`、`cfg set detour_recheck_mm 600` | 逐个试，别一次改多个 |
+| 3 | `guide detour 1` | 打开绕行，用 `guide status` 看 `detour=spin/probe`、`attempts` |
+| 4 | `cfg list` | 调好后记录下来（v1 参数掉电丢失） |
+
+**v2 升级路径**：装上第二路超声波（PA2/PA3，需关 USART2）后，把 `DT_SPIN` 的"固定方向"改为"比较左右净空后选边"，即可演进出真正的绕行（`GUIDE_ARC_LEFT/RIGHT` 已预留枚举）。
 
 ---
 
