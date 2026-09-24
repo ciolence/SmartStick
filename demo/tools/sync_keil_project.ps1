@@ -9,6 +9,12 @@
     * CubeMX 重新生成工程后，重跑一次即可恢复（Keil 里不用手点）；
     * 会先备份 *.uvprojx.bak（已被 .gitignore 排除）。
 
+  ⚠ 两个已踩过的坑（勿回退）：
+    1) 写文件不能带 UTF-8 BOM —— Keil 工程解析器不接受，UV4 -b 会直接退出码 15。
+    2) 不能用 StringWriter 保存 —— 它会把 XML 声明写成 encoding="utf-16"，
+       而文件其实是 UTF-8，下次 XmlDocument.Load 会直接报错。
+       必须用 XmlWriter + UTF8Encoding($false)。
+
   用法（在任意目录）：
     powershell -ExecutionPolicy Bypass -File f:\RM\smart_sti\demo\tools\sync_keil_project.ps1
 #>
@@ -74,14 +80,14 @@ function Get-FileType([string]$path) {
 }
 
 function Sync-Group($xml, $groupsNode, [string]$groupName, [array]$fileSpecs) {
-  # fileSpecs: 相对工程根的文件路径列表（\ 分隔）
   $group = $groupsNode.SelectSingleNode("Group[GroupName='$groupName']")
+  $created = $false
   if (-not $group) {
     $group = $xml.CreateElement('Group')
     $gn = $xml.CreateElement('GroupName'); $gn.InnerText = $groupName
     [void]$group.AppendChild($gn)
     [void]$groupsNode.AppendChild($group)
-    Write-Host ("  + 新建分组 {0}" -f $groupName)
+    $created = $true
   }
 
   $filesNode = $group.SelectSingleNode('Files')
@@ -99,7 +105,8 @@ function Sync-Group($xml, $groupsNode, [string]$groupName, [array]$fileSpecs) {
     [void]$filesNode.AppendChild((New-FileNode $xml $fn (Get-FileType $abs) (Get-RelPath $abs)))
     $count++
   }
-  Write-Host ("  = {0} ：{1} 个文件" -f $groupName, $count)
+  $mark = if ($created) { '+' } else { '=' }
+  Write-Host ("  {0} {1} ：{2} 个文件" -f $mark, $groupName, $count)
 }
 
 # ---------- 主流程 ----------
@@ -110,7 +117,8 @@ Write-Host "已备份 → HAL_OLED.uvprojx.bak"
 
 $xml = New-Object System.Xml.XmlDocument
 $xml.PreserveWhitespace = $true
-$xml.Load($projPath)
+# 注意：不用 $xml.Load(路径)，因为读取时若声明与实际编码不符会抛异常
+$xml.LoadXml([System.IO.File]::ReadAllText($projPath, [System.Text.Encoding]::UTF8))
 
 # 4.1 include 路径
 $incNode = $xml.SelectNodes('//Cads/VariousControls/IncludePath') |
@@ -150,11 +158,21 @@ foreach ($g in $legacyDefs) {
   Sync-Group $xml $groupsNode $g.Name $g.Files
 }
 
-# ⚠ 关键：XmlDocument.Save() 会写入 UTF-8 BOM（EF BB BF），Keil 的工程解析器不接受，
-#    会导致 UV4 -b 直接失败（退出码 15）。因此改写为"存字符串 + 无 BOM 写文件"。
-$sw = New-Object System.IO.StringWriter
-$xml.Save($sw)
-[System.IO.File]::WriteAllText($projPath, $sw.ToString(), (New-Object System.Text.UTF8Encoding($false)))
+# 4.3 保存：UTF-8 无 BOM + 正确的 XML 声明
+$settings = New-Object System.Xml.XmlWriterSettings
+$settings.Encoding = New-Object System.Text.UTF8Encoding($false)
+$settings.Indent = $false
+$settings.OmitXmlDeclaration = $false
+$writer = [System.Xml.XmlWriter]::Create($projPath, $settings)
+try {
+  $xml.Save($writer)
+} finally {
+  $writer.Close()
+}
 
-Write-Host "完成：$projPath"
+# 4.4 自检：确认无 BOM
+$bytes = [System.IO.File]::ReadAllBytes($projPath)
+$bom = ($bytes[0] -eq 0xEF) -and ($bytes[1] -eq 0xBB) -and ($bytes[2] -eq 0xBF)
+Write-Host ("完成：{0}" -f $projPath)
+Write-Host ("自检：BOM = {0}（必须为 False）" -f $bom)
 Write-Host "提示：回到 Keil 若提示工程被外部修改，选择 Reload 即可。"
