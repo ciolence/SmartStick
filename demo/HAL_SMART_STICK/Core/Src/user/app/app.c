@@ -15,6 +15,9 @@
 #include "bsp_i2c.h"
 #include "drv_motor.h"
 #include "drv_alarm.h"
+#include "drv_us.h"
+#include "drv_batt.h"
+#include "drv_key.h"
 #include "cfg.h"
 #include "board.h"
 
@@ -24,15 +27,11 @@
  * 调度器任务签名是 void(void)，而驱动的 update 返回 err_t（错误已在驱动内部记账），
  * 这里用一行包装函数转换，避免在调度器里引入返回值语义。
  */
-static void app_motor_task(void)
-{
-  (void)motor_update();
-}
-
-static void app_alarm_task(void)
-{
-  (void)alarm_update();
-}
+static void app_motor_task(void) { (void)motor_update(); }
+static void app_alarm_task(void) { (void)alarm_update(); }
+static void app_us_task(void)    { (void)us_update();    }
+static void app_batt_task(void)  { (void)batt_update();  }
+static void app_key_task(void)   { (void)key_update();   }
 
 void app_hb_task(void)
 {
@@ -86,7 +85,7 @@ void app_init(void)
     LOG_E(LOG_TAG, "bsp_gpio_init failed: %s", err_str(e));
   }
 
-  /* 5. 串口 + 命令行（先于驱动注册命令表） */
+  /* 5. 串口 + 命令行（驱动随后挂各自的命令表） */
   e = bsp_uart_init();
   if (e != ERR_OK) {
     err_record(MOD_SYS, e);
@@ -94,7 +93,7 @@ void app_init(void)
   svc_shell_init();
   svc_shell_print_banner();
 
-  /* 6. 电机驱动：必须尽早进入安全态（PWM=0、IN 全低） */
+  /* 6. 电机：必须尽早进入安全态（PWM=0、IN 全低） */
   e = motor_init();
   if (e != ERR_OK) {
     err_record(MOD_MOTOR, e);
@@ -103,7 +102,7 @@ void app_init(void)
     (void)motor_shell_register();
   }
 
-  /* 7. 报警驱动（先注册，最后再放"就绪提示音"） */
+  /* 7. 报警（先注册，最后再放"就绪提示音"） */
   e = alarm_init();
   if (e != ERR_OK) {
     err_record(MOD_ALM, e);
@@ -112,21 +111,49 @@ void app_init(void)
     (void)alarm_shell_register();
   }
 
-  /* 8. I²C 总线自检（结果直接打印，最省事的接线验证） */
+  /* 8. 超声波（HC-SR04）：失败只降级，不阻断 */
+  e = us_init();
+  if (e != ERR_OK) {
+    err_record(MOD_US, e);
+  } else {
+    (void)us_shell_register();
+  }
+
+  /* 9. 电池电压 */
+  e = batt_init();
+  if (e != ERR_OK) {
+    err_record(MOD_BATT, e);
+    LOG_W(LOG_TAG, "batt_init failed: %s", err_str(e));
+  } else {
+    (void)batt_shell_register();
+  }
+
+  /* 10. 按键 */
+  e = key_init();
+  if (e != ERR_OK) {
+    err_record(MOD_KEY, e);
+  } else {
+    (void)key_shell_register();
+  }
+
+  /* 11. I²C 总线自检（结果直接打印，最省事的接线验证） */
   (void)bsp_i2c_init();
   app_i2c_report();
 
-  /* 9. 任务注册（周期来自 g_cfg） */
+  /* 12. 任务注册 */
   svc_sched_init();
   (void)svc_sched_add("shell",  svc_shell_task,  10u);
   (void)svc_sched_add("motor",  app_motor_task,  10u);   /* 软启动斜坡/换向保护 */
   (void)svc_sched_add("alarm",  app_alarm_task,  10u);   /* 报警 pattern 推进 */
+  (void)svc_sched_add("us",     app_us_task,     20u);   /* 内部按 us_period_ms 节流触发 */
+  (void)svc_sched_add("key",    app_key_task,    20u);   /* 去抖 + 事件 */
+  (void)svc_sched_add("batt",   app_batt_task, (uint32_t)g_cfg.batt_period_ms);
   (void)svc_sched_add("hb",     app_hb_task,    500u);   /* 心跳灯 1Hz */
 
   LOG_I(LOG_TAG, "app_init done, %u task(s) running", (unsigned)svc_sched_count());
-  LOG_I(LOG_TAG, "tips: help | i2c | motor | alarm | cfg list | err | tasks");
+  LOG_I(LOG_TAG, "tips: help | us | batt | key | motor | alarm | i2c | cfg | err | tasks");
 
-  /* 10. 就绪提示音（两短声）：听得见就说明蜂鸣器通路 OK */
+  /* 13. 就绪提示音（两短声）：听得见就说明蜂鸣器通路 OK */
   (void)alarm_play(ALARM_EV_BOOT_OK);
 }
 
