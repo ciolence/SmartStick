@@ -115,11 +115,27 @@
 | **偏差 3** | 目录名 `HAL_SMART_STICK`、工程名 `HAL_OLED` 与指南原名 `SmartStick` 不一致 → **采纳现状**，文档已按实际改写 |
 | **待整改** | `Delay.c` 直接操作 SysTick（会停掉 HAL 1ms 时基）→ 阶段 4 由我改造为 TIM4 基准（见 `ARCHITECTURE.md` 5.2） |
 
-### 阶段 4：代码实现（我做）⏳ 进行中
+### 阶段 4：代码实现（我做）⏳ 进行中（基础框架 ✅ / 驱动层 ✅ / 业务层 ← 当前位置）
+
 - 代码位置：`demo/HAL_SMART_STICK/Core/{Inc,Src}/user/**`（CubeMX 不管理的独立目录）。
-- 顺序：① 基础框架（`err`/`log`/`cfg`/`sched`/`shell`/`bsp` + `main.c` 钩子）→ ② 驱动层逐模块（每模块含 `selftest` + shell 命令）→ ③ 业务层（避障、跌倒、报警、牵引）→ ④ 整合。
-- 每完成一个模块即交付，附「用 shell 如何验证它」。
-- **用户参与点**：① OLED 控制器型号确认（SSD1306/SH1106）；② 牵引转向细节（阶段 4 后半，O7）。
+- **① 基础框架 ✅（2026-09-24）**：`err`(错误码) / `cfg`(参数表) / `svc_log`(五级日志) / `svc_sched`（合作式调度）/ `svc_shell`（行编辑 + 9 个基础命令）/ `bsp`(time/uart/gpio/i2c) / `board.h`（引脚门面）；`main.c` 只加三行钩子；`Delay.c` 已整改为 TIM4 基准。
+- **② 驱动层 ✅（2026-09-24，9 个模块，每个都带 selftest + shell 命令）**：
+
+| 驱动 | 硬件 | shell 命令 |
+|---|---|---|
+| `drv_motor` | L298N + 双 GA25-370 | `motor stop\|brake\|<l> <r>` |
+| `drv_alarm` | 蜂鸣器 + 振动马达 | `alarm <ev>\|off\|mute 0\|1`、`buzz <ms>`、`vib <ms>` |
+| `drv_us` | HC-SR04（TRIG/ECHO + EXTI1） | `us`、`us mon [n]` |
+| `drv_imu` | MPU6050 | `imu`、`imu mon [n]` |
+| `drv_oled` | 0.96" SSD1306（适配层 + 帧缓冲） | `oled test\|clear\|stat\|text L C S` |
+| `drv_batt` | PA4 分压 + ADC | `batt` |
+| `drv_key` | PA11/PA12 | `key`、`key mon [n]` |
+| `drv_mag` | QMC5883L（P2） | `mag`、`mag cal start\|stop` |
+| `drv_bt` | USART3 骨架（P2） | `bt status\|echo 0\|1\|send S` |
+
+- **③ 业务层（下一步）**：`app_fsm`（全局状态机）→ `app_avoid`（避障分级）→ `app_fall`（跌倒检测）→ `app_alarm` 联动 → `app_guide`（直行 + 预留转向）。
+- **④ 整合** → 阶段 5 编译与静态验证。
+- **用户参与点**：牵引转向细节确认（`CFG_ADV_GUIDE_EN`，O7）。
 
 ### 阶段 5：编译与静态验证（我做）
 - Keil 命令行编译（`UV4 -b`）做到 0 Error / 0 Warning。

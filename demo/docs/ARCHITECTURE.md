@@ -239,20 +239,23 @@ v1 实际可用按键 **2 个**：`SOS_KEY`(PA11)、`MODE_KEY`(PA12)；`KEY3`(PB
 
 ### 6.3 任务表（`svc_sched.c` 里的一张静态表）
 
+**已落地（2026-09-24，`app.c` 里注册的 11 个任务）：**
+
 | 任务 | 周期 | 归属 | 做什么 |
 |---|---|---|---|
-| `shell_poll` | 10 ms | svc | 从环形缓冲取一行 → 解析 → 执行 |
-| `key_scan` | 20 ms | drv_key | 去抖、产生短按/长按事件 |
-| `imu_update` | 20 ms | drv_imu | 读 14 字节 → 单位换算 → 互补滤波（50Hz） |
-| `us_update` | **80 ms** | drv_us | 触发一次测距 → EXTI 已记好时间戳 → 换算 mm + 3 点中值滤波（HC-SR04 数据手册要求测距周期 ≥60ms，80ms 留余量；两路时交替触发） |
-| `batt_update` | 500 ms | drv_batt | ADC 采样 + 滑动平均 |
-| `fall_task` | 20 ms | app_fall | 跌倒状态机推进 |
-| `avoid_task` | 20 ms | app_avoid | 避障分级判定，输出速度系数 |
-| `alarm_task` | 10 ms | app_alarm | 报警 pattern 时序推进（非阻塞） |
-| `guide_task` | 50 ms | app_guide | 计算 L/R 占空比 → `motor_set()` |
-| `ui_task` | 200 ms | app_ui | OLED 刷新（内容变化时提前刷新） |
-| `hb_task` | 500 ms | app | 心跳灯翻转（1Hz，证明固件在跑） |
-| `mag_update` | 100 ms | drv_mag | 读磁场（P2，仅数据可用） |
+| `shell` | 10 ms | svc_shell | 从环形缓冲取字节 → 行编辑 → 命令分发 |
+| `motor` | 10 ms | drv_motor | 推进软启动斜坡 + 换向保护计时 |
+| `alarm` | 10 ms | drv_alarm | 报警 pattern 相位推进（蜂鸣/振动各自计数） |
+| `us` | 20 ms | drv_us | 消化 EXTI 时间戳 → mm + 3 点中值滤波；**按 `us_period_ms`(80ms) 节流触发**（HC-SR04 要求 ≥60ms） |
+| `key` | 20 ms | drv_key | 去抖（`key_debounce_ms`）+ 短按/长按/超长按事件 |
+| `imu` | 20 ms | drv_imu | 读 14 字节 → 整数换算 → 模长/倾角指标（50Hz） |
+| `ui` | 200 ms | app_ui | 重建 4 行文本 → 只在有脏页时刷新（每次 ≤2 页） |
+| `batt` | 500 ms | drv_batt | ADC 轮询 + 8 点滑动平均 + 两级阈值 |
+| `mag` | 100 ms | drv_mag | 读磁场（P2）+ 校准极值采集 |
+| `bt` | 100 ms | drv_bt | 蓝牙收行（P2 骨架，`bt_on_line()` 钩子待接协议） |
+| `hb` | 500 ms | app | 心跳灯翻转（1Hz，不依赖串口的"活着"证据） |
+
+**阶段 4-D 待加（业务层）：** `fall_task`(20ms)、`avoid_task`(20ms)、`guide_task`(50ms)、`fsm`(状态迁移)。
 
 > 调度器实现：`for each task: if (now - last >= period) { last += period; fn(); }` —— 无阻塞、无优先级反转、可读性最好。单轮总耗时估算 < 3ms。
 
