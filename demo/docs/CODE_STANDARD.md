@@ -385,6 +385,7 @@ err_t us_selftest(char *out, uint16_t n);
 | 局部变量 | 函数开头声明（C89 风格，Keil ARMCC 兼容性最稳） |
 | 注释 | 模块头 + 每个函数一段 `@brief/@param/@return`；算法关键处写"为什么"；禁止"废话注释"（`i++; /* i 加一 */`） |
 | 禁止清单 | `malloc/free`、递归、`goto`（错误清理除外）、可变参数自造、位域、C++ 特性、`HAL_Delay()`（`app_init` 除外）、`printf("%f")`、大数组局部变量（>64B 用 `static` 或全局） |
+| **中文使用规则**（2026-09-24 实测补充） | **中文只允许出现在注释里；所有字符串字面量必须 ASCII**。<br>原因：ARM Compiler 5 遇到 UTF-8 多字节字符的字符串会报 `#8: missing closing quote` 并连锁报错（`svc_shell.c` 实测 23 errors）。<br>→ 日志、shell 帮助、banner 文案一律用英文；中文注释（含 `★` 等符号）可正常编译，UTF-8 注释不会像 GBK 那样因 `0x5C` 截断注释 |
 
 ---
 
