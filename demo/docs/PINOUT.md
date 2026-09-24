@@ -13,7 +13,7 @@
 |---|------|------|------|------|-----------|------|--------|
 | 1 | **L298N 双 H 桥** | 1 | 逻辑 5V / 电机 12V | GPIO ×4 + PWM ×2 | IN 电平定方向，ENA/ENB 调 PWM；**18 kHz** | — | P0 |
 | 2 | **GA25-370 DC12V 减速电机** | 2 | 12V（经 L298N） | 两线 | 有刷直流，H 桥换向 | — | P0 |
-| 3 | **超声波模块**（US-100/AJ-SR04M 类） | 1 | 3.3V（US-100）或 5V（HC-SR04） | USART2 **或** Trig/Echo | UART 9600 8N1（0x55 触发）／ 触发脉宽 10µs + 回波脉宽 | — | P0 |
+| 3 | **超声波 HC-SR04**（型号已定） | 1（+1 预留） | **5V**（模块要求，≈15mA） | **TRIG / ECHO** 双线 | TRIG 10µs 高脉冲触发 → ECHO 高电平宽度 = **58µs/cm** → 距离 = 宽度/58 | — | P0 |
 | 4 | **MPU6050** | 1 | 3.3V | I²C1 | 400 kHz；WHO_AM_I(0x75)=0x68 | 7 位 **0x68** | P0 |
 | 5 | **OLED 4 脚** | 1 | 3.3V | I²C1 | 400 kHz；SSD1306 / SH1106（待确认） | 7 位 **0x3C** | P0 |
 | 6 | **有源蜂鸣器模块** | 1 | 3.3V/5V | GPIO（电平触发） | 电平触发，默认按**低电平触发**写，参数可切 | — | P0 |
@@ -37,9 +37,9 @@
 |------|------|-----------|------|------|
 | **调试串口 shell TX** | PA9 | USART1_TX | AF Push-Pull | 115200 8N1，接 USB-TTL 的 RX |
 | **调试串口 shell RX** | PA10 | USART1_RX | Input floating | 115200 8N1 |
-| **超声波（UART 模式）TX** | PA2 | USART2_TX | AF Push-Pull | 9600 8N1，接模块 RXD |
-| **超声波（UART 模式）RX** | PA3 | USART2_RX | Input floating | 9600 8N1，接模块 TXD |
-| **超声波（Trig/Echo 模式）** | PA0 / PA1 | TIM2_CH1 / TIM2_CH2 | GPIO-Out / Input Capture | **二选一**：不用 UART 模式时启用；Echo 若为 5V 需分压 |
+| **超声波 TRIG（HC-SR04 #1）** | PA0 | GPIO_Output（TIM2_CH1） | Push-Pull，初值 **LOW** | 10µs 高脉冲触发；**当前是模拟态，待 CubeMX 补配**（见 `CUBEMX_GUIDE.md` 4.10） |
+| **超声波 ECHO（HC-SR04 #1）** | PA1 | GPIO_Input + **EXTI1 双边沿**（TIM2_CH2） | **Pull-Down** | 5V ECHO **必须分压**（2.2kΩ 串 + 3.3kΩ 下拉）；TIM4 量脉宽 → 距离 = µs / 58 |
+| **USART2（v1 备用，不接线）** | PA2 / PA3 | USART2_TX / USART2_RX | AF Push-Pull / Input floating | 9600 8N1；**已预留给超声波 #2 的 TRIG/ECHO**（启用时关闭 USART2 即可） |
 | **蓝牙 TX** | PB10 | USART3_TX | AF Push-Pull | 9600 8N1，接模块 RXD |
 | **蓝牙 RX** | PB11 | USART3_RX | Input floating | 9600 8N1 |
 | **I²C1 SCL** | PB6 | I2C1_SCL | AF Open-Drain | 400 kHz，模块自带 4.7kΩ 上拉 |
@@ -65,10 +65,10 @@
 
 | 端口 | 分配 | 端口 | 分配 |
 |------|------|------|------|
-| PA0 | 预留：第二路超声波 Trig | PB0 | 左轮 PWM（TIM3_CH3） |
-| PA1 | 预留：第二路超声波 Echo | PB1 | 右轮 PWM（TIM3_CH4） |
-| PA2 | 超声波 TX（USART2_TX） | PB2 | **不使用**（BOOT1，保持默认） |
-| PA3 | 超声波 RX（USART2_RX） | PB3 | **空闲**（原 JTDO，SWD 模式下可用） |
+| PA0 | **超声波 #1 TRIG**（待补配：GPIO_Out） | PB0 | 左轮 PWM（TIM3_CH3） |
+| PA1 | **超声波 #1 ECHO**（待补配：EXTI1 双边沿 + 下拉） | PB1 | 右轮 PWM（TIM3_CH4） |
+| PA2 | USART2_TX（备用；**预留给超声波 #2 TRIG**） | PB2 | **不使用**（BOOT1，保持默认） |
+| PA3 | USART2_RX（备用；**预留给超声波 #2 ECHO**） | PB3 | **空闲**（原 JTDO，SWD 模式下可用） |
 | PA4 | 电池电压（ADC1_IN4） | PB4 | 按键备用 1（内部上拉） |
 | PA5 | **空闲**（可选舵机 PWM: TIM2_CH1） | PB5 | 按键备用 2（内部上拉） |
 | PA6 | **空闲**（预留 SPI1_MISO 排针） | PB6 | I²C1_SCL |
@@ -176,6 +176,15 @@
 
 > 若最终用 12V 铅酸，阈值完全不同（11.5V / 10.8V），届时改参数即可。
 
+### 4.4 电源现状与预留（2026-09-24 更新）
+
+| 项 | 现状 | 处置 |
+|---|---|---|
+| 正式电源 | **未定** | 代码不依赖具体电池：分压比 `CFG_BATT_DIV_RATIO_X1E4`（默认 43000 = 4.3000）与两级低电阈值都是**运行期参数**，换电池只改参数、不改代码 |
+| 测试电池 | **11.1V / 1200mAh（3S 锂电，用户已有）**，仅台架测试 | 阈值先按 3S 写（10.5V / 9.9V）。⚠️ 1200mAh 驱动双 GA25-370 只能撑**十几分钟量级**（取决于负载），**不作整机方案** |
+| 续航估算 | **延后**（用户要求先做代码） | 待正式电源确定后，按「电机实测电流 × 平均占空比 + 控制电路静态电流（≈60mA）」估算；届时补 `POWER.md` 或并入 `VERIFY.md` |
+| 降压模块 | 待定（MP1584EN / LM2596S 类，12V→5V ≥2A） | 与电源一起确定；仍需**拆 L298N 的 5V 跳线帽**由外部 5V 轨供逻辑电 |
+
 ---
 
 ## 5. 预留与扩展
@@ -207,7 +216,8 @@
 | 振动马达基极 | 1kΩ 电阻（串联） | 限制基极电流 | **必须** |
 | PA4 分压 | 33kΩ + 10kΩ(1%) + 100nF | 电压检测 | P1 时必装 |
 | 按键 | 100nF 并联（可选） | 硬件去抖 | 可选 |
-| **HC-SR04 备用方案** | ECHO 串 2.2kΩ + 下拉 3.3kΩ | 5V Echo → 3.3V | **仅当用 5V 超声波时** |
+| **HC-SR04 ECHO 分压** | ECHO 串 **2.2kΩ** + 下拉 **3.3kΩ**（→3.0V） | 5V ECHO → 3.3V 安全电平 | **必须**（型号已定 HC-SR04） |
+| **HC-SR04 供电去耦** | 5V 轨 + 100nF（模块旁） | 发射瞬间电流尖峰 | 建议 |
 | 电源入口 | 5A 保险丝座 + 开关 | 安全 | **建议** |
 
 ---
@@ -226,16 +236,21 @@
 
 ---
 
-## 8. 阶段 3 前置：CubeMX 里要配的东西（清单，详细操作见 `CUBEMX_GUIDE.md`）
+## 8. 阶段 3 配置清单与落实情况（2026-09-24 已完成；逐项核对结论见 `WORKFLOW.md` 5.3）
 
-- [ ] RCC：HSE = Crystal/Ceramic Resonator（板载 8MHz）
-- [ ] SYS：Debug = **Serial Wire**；Timebase = SysTick
-- [ ] 时钟树：HSE 8MHz → PLL ×9 → **SYSCLK 72MHz**（APB1 /2 = 36MHz，APB2 /1 = 72MHz，ADC /6 = 12MHz）
-- [ ] I2C1（400kHz）、USART1（115200）、USART2（9600）、USART3（9600）
-- [ ] TIM3_CH3/CH4 PWM（PSC=3, ARR=999 → **18kHz**）
-- [ ] TIM4 作为**微秒计时基准**（PSC=71 → 1MHz）
-- [ ] ADC1_IN4（PA4）
-- [ ] GPIO：按键 ×2（上拉）/ 备用按键 ×2（上拉）/ IN1~IN4（输出低）/ 蜂鸣器（输出高）/ 马达（输出低）/ PC13 心跳灯（输出高）
-- [ ] 引脚重命名（User Label）：`US_TX/US_RX/BT_TX/BT_RX/IN1..IN4/ENA/ENB/BUZZ/VIB/SOS_KEY/MODE_KEY/BATT_ADC/LED_HB`
-- [ ] NVIC：4 位抢占优先级，无子优先级（详见指南第 5 节）
-- [ ] Project：MDK-ARM **V5**，工程名 `SmartStick`，Application Structure = Advanced
+- [x] RCC：HSE = Crystal/Ceramic Resonator（板载 8MHz）
+- [x] SYS：Debug = **Serial Wire**；Timebase = SysTick
+- [x] 时钟树：HSE 8MHz → PLL ×9 → **SYSCLK 72MHz**（APB1 /2 = 36MHz，APB2 /1 = 72MHz，ADC /6 = 12MHz）
+- [x] I2C1（400kHz）、USART1（115200）、USART2（9600）、USART3（9600）
+- [x] TIM3_CH3/CH4 PWM（PSC=3, ARR=999 → **18kHz**）
+- [x] TIM4 作为**微秒计时基准**（PSC=71 → 1MHz）
+- [x] ADC1_IN4（PA4）
+- [x] GPIO：IN1~IN4（输出低）/ 蜂鸣器（输出高）/ 马达（输出低）/ PC13 心跳灯（输出高）/ 按键 SOS+MODE（上拉）
+- [x] 引脚重命名（User Label）：`IN1..IN4/BUZZ/VIB/SOS_KEY/MODE_KEY/LED_HB`（PWM 脚 PB0/PB1 走 TIM3 通道句柄，无需标签）
+- [x] NVIC：4 位抢占优先级（`NVIC_PRIORITYGROUP_4`），无子优先级；SysTick=15、USART1/3=5
+- [x] Project：MDK-ARM **V5.32**，工程名 **`HAL_OLED`**（原计划 `SmartStick`，采纳现状），Application Structure = Advanced
+
+**未配置项（有意保留，非遗漏）：**
+
+- [ ] 备用按键 KEY3/KEY4（PB4/PB5）—— v1 只用 2 键（见 2.2 #9），需要时补配并重新生成
+- [ ] 超声波 Trig/Echo 备用脚 PA0/PA1 —— 当前为模拟态；若到货模块不是 UART 型，需补配（GPIO 输出 + TIM2_CH2 输入捕获）

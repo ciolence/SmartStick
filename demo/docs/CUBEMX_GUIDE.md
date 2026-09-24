@@ -230,21 +230,57 @@
 
 **输入（按键）：**
 
-| 引脚 | User Label | GPIO mode | Pull-up/Pull-down |
-|---|---|---|---|
-| PA11 | `SOS_KEY` | Input mode | **Pull-up** |
-| PA12 | `MODE_KEY` | Input mode | **Pull-up** |
-| PB4 | `KEY3` | Input mode | **Pull-up** |
-| PB5 | `KEY4` | Input mode | **Pull-up** |
+| 引脚 | User Label | GPIO mode | Pull-up/Pull-down | 实际状态 |
+|---|---|---|---|---|
+| PA11 | `SOS_KEY` | Input mode | **Pull-up** | ✅ 已配置 |
+| PA12 | `MODE_KEY` | Input mode | **Pull-up** | ✅ 已配置 |
+| PB4 | `KEY3` | Input mode | **Pull-up** | ⏸ **暂不配置**（v1 用 2 键，备用键低优先级） |
+| PB5 | `KEY4` | Input mode | **Pull-up** | ⏸ 同上 |
 
 > 按键一端接引脚、另一端接 **GND**，按下读到低电平；内部上拉足够，不用外接电阻。
-> PB4 能当输入的前提是第 2.2 节已设 `Debug = Serial Wire`。
+> PB4/PB5 未配置时会按"空闲脚设模拟输入"规则置为模拟态，**安全无害**；将来要用只需在 CubeMX 里补配后重新生成一次（注意重生成可能丢 Keil 手工分组，见 `WORKFLOW.md` 9.3）。
 
 ### 4.9 不要碰的引脚
 
 - **PA13 / PA14** → SWDIO / SWCLK，CubeMX 自动配置，别改。
 - **PD0 / PD1** → 板载 8MHz 晶振（OSC_IN/OSC_OUT），保持 RCC 配置即可。
-- **PA0 / PA1 / PA5 / PA6 / PA7 / PA15 / PB3** → **保持未配置**（预留）。会由第 9 节的选项自动设为模拟输入，属正常。
+- **PA5 / PA6 / PA7 / PA15 / PB3 / PB4 / PB5** → **保持未配置**（预留）。会由第 9 节的选项自动设为模拟输入，属正常。
+
+### 4.10 超声波 HC-SR04（Trig/Echo 模式）★ 2026-09-24 新增，需重新生成
+
+> 型号已确定为 **HC-SR04**（5V 供电、Trig/Echo 接口），因此 **PA0/PA1 必须启用**（当前是模拟态）。
+> 一次配好，以后不用再动。
+
+| 引脚 | User Label | 配置 | 关键参数 |
+|---|---|---|---|
+| **PA0** | `US1_TRIG` | **GPIO_Output** | Output level = **Low**；Push Pull；No pull-up/pull-down；Speed = Low |
+| **PA1** | `US1_ECHO` | **GPIO_Input**（中断模式） | GPIO mode = **External Interrupt Mode with Rising/Falling edge trigger detection**；Pull-up/Pull-down = **Pull-down** |
+
+**NVIC Settings（`System Core → NVIC`）：**
+
+| 中断 | 勾选 | Preemption Priority |
+|---|---|---|
+| `EXTI line1 interrupt` | ☑ Enable | **6** |
+
+**同时把 PA2/PA3 保持原样**（USART2，v1 不接线）——它们已预留给第二路 ultrasonics 的 TRIG/ECHO，将来启用时关闭 USART2 即可。
+
+**为什么用 EXTI 双边沿**：ECHO 高电平宽度最大可达 23ms（4m），用中断记录上升/下降沿的 TIM4（1MHz）时间戳，**不阻塞 CPU**，也天然支持以后接第二路。CubeMX 生成的 `EXTI1_IRQHandler` 会放在 `stm32f1xx_it.c` 里（CubeMX 管理，我们不改它）。
+
+**硬件接线（必须照做）：**
+
+```
+HC-SR04            STM32
+VCC  ────────────── 5V 轨（降压模块输出，勿用 3.3V）
+GND  ────────────── GND（共地）
+TRIG ────────────── PA0        （3.3V 高电平可被 HC-SR04 识别为高，无需电平转换）
+ECHO ──[2.2kΩ]──┬── PA1        （！！5V 输出必须分压，否则打坏引脚）
+                └──[3.3kΩ]── GND
+```
+
+> 分压后 ECHO 峰值 = 5V × 3.3k/(2.2k+3.3k) ≈ **3.0V** ✅ 安全。
+> 除法器外，**别忘** 5V 轨上加 100nF 去耦（HC-SR04 发射瞬间是电流尖峰源）。
+
+**重新生成后的连带影响**：Keil 工程里手工加的 `Hardware` / `System` 分组可能丢失 → 我已有脚本可一键重注入（见 `WORKFLOW.md` 9.3）。
 
 ---
 
@@ -273,11 +309,13 @@
 
 | 项 | 值 |
 |---|---|
-| Project Name | **SmartStick** |
-| Project Location | `f:/RM/smart_sti/demo`（生成后为 `demo/SmartStick`） |
+| Project Name | **SmartStick**（实际用了 **`HAL_OLED`**，已达成为现状，勿改名） |
+| Project Location | `f:/RM/smart_sti/demo`（生成后为 `demo/SmartStick`；**实际为 `demo/HAL_SMART_STICK/`**） |
 | Application Structure | **Advanced** |
-| Toolchain / IDE | **MDK-ARM**，Min Version 选 **V5** |
-| Firmware Package | 用推荐版本即可（`STM32Cube FW_F1 V1.8.x`）；提示下载就点 Download |
+| Toolchain / IDE | **MDK-ARM**，Min Version 选 **V5**（实际 V5.32） |
+| Firmware Package | 用推荐版本即可（实际 `STM32Cube FW_F1 V1.8.6`） |
+
+> 命名差异的来龙去脉与审查结论见本文第 11 节。
 
 ### 6.2 Code Generator
 
@@ -350,3 +388,31 @@
 | CubeMX 重新生成后我们的代码没了 | 没勾 `Keep User Code` | 重新生成前确认该选项已勾；我们的代码**只写在 USER CODE 区内 + user/ 独立目录**（见 `CODE_STANDARD.md`） |
 | 生成时提示 `LL` 驱动 | 老版本默认 | 保持 HAL，改回 HAL 再生成 |
 | I²C 一个设备都没有 | 供电/接线 | 先跑 I²C 扫描（`VERIFY.md` 第 3 步），确认 0x3C/0x68/0x0D |
+
+---
+
+## 11. 实测复核与差异说明（2026-09-24）
+
+工程实际生成于 **`demo/HAL_SMART_STICK/`**，CubeMX 工程名 **`HAL_OLED`**，Keil 工程 `MDK-ARM/HAL_OLED.uvprojx`。我逐文件核对过 `.ioc` 与生成的 `main.c / gpio.c / i2c.c / tim.c / usart.c / adc.c / main.h`，**全部符合本指南**，差异如下（均不影响功能）：
+
+| # | 差异 | 说明 |
+|---|------|------|
+| D1 | **工程名/目录名不是 `SmartStick`** | 用户复用既有模板，采纳现状，不改名（改名会破坏 CubeMX/Keil 内部引用） |
+| D2 | **PB4/PB5（KEY3/KEY4）未配置** | 有意保留：v1 只用 PA11/PA12 两键，备用键低优先级；将来补配需重新生成（注意 Keil 手工分组可能丢失） |
+| D3 | PB0/PB1（ENA/ENB）未加 User Label | 无影响：PWM 走 `htim3` 通道句柄，不依赖标签 |
+| D4 | `.ioc` 里 I2C1 只写了 `I2C_Mode=I2C_Fast` | 生成出来的 `i2c.c` 里 `ClockSpeed = 400000` **正确**（其余字段为默认值） |
+| D5 | `.ioc` 里 USART1 未显式写波特率 | 生成出来是 **115200**（CubeMX 默认值），正确 |
+| D6 | TIM3 GPIO 输出速度 = LOW | 18kHz 方波绰绰有余（2MHz 档），无需改 |
+| D7 | Heap 0x200 / Stack 0x400 / Optim Level 3 | 可接受：我们不用 `malloc`；体积实测 Flash 9.57KB、RAM 2.09KB，余量充足 |
+
+**关于"ADC 找不到的配置参数"**（用户反馈）：STM32**F1** 的 ADC 在 CubeMX 里确实**没有**下面这几项，属于正常，不必强求：
+
+| 指南里提到但在 F1 不存在 | 原因/等价设置 |
+|---|---|
+| `Resolution = 12 bits` | F1 的 ADC 固定 12 位，无此项 |
+| `ADCs_Common_Settings → Mode` | 只有单颗 ADC，无多 ADC 模式选择 |
+| `DMA Continuous Requests` | F1 无此参数（我们用软件触发 + 轮询，也不需要） |
+| `End Of Conversion Selection` | F1 由 HAL 内部固定处理 |
+| ADC 时钟分频 | **不在 ADC 页**，在 `Clock Configuration` 页的 ADC Prescaler 里设（已设 **/6 → 12MHz** ✅） |
+
+实际已设置的等价项：`ContinuousConvMode = ENABLE`、`SampleTime = 55.5 cycles`、`Channel = Channel 4`、`ExternalTrigConv = Software`、`DataAlign = Right`、`NbrOfConversion = 1`、`ScanConvMode = Disable` ✅

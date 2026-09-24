@@ -268,65 +268,67 @@ if (e != ERR_OK) {
 
 ```c
 /* ---------- 编译期开关 ---------- */
-#define CFG_LOG_LEVEL            1       /* 0=E 1=W 2=I 3=D 4=T */
-#define CFG_USE_FLOAT_PRINT      0       /* 恒为 0：禁止 printf 浮点 */
-#define CFG_ALARM_ENABLE         1       /* 0 = 全局静音（调试用） */
-#define CFG_FALL_ENABLE          1       /* 0 = 关闭跌倒检测 */
-#define CFG_ADV_GUIDE_EN         0       /* ★预留：高级牵引（SPIN/ARC/TURN_TO）默认关 */
-#define CFG_US_MODE              0       /* 0 = UART(US-100)  1 = TRIG_ECHO(HC-SR04) */
-#define CFG_US_SECOND_EN         0       /* ★预留：第二路超声波 */
-#define CFG_MAG_ENABLE           1       /* 磁力计读数据（不做航向业务） */
-#define CFG_BT_MIRROR_SHELL      0       /* 日志镜像到蓝牙 */
-#define CFG_ENABLE_NV_SAVE       0       /* ★预留：参数写 Flash */
-#define CFG_BUZZER_ACTIVE_LOW    1       /* 1 = 低电平触发（与 CubeMX 初值 HIGH 对应） */
+#define CFG_LOG_LEVEL          1    /* 0=E 1=W 2=I 3=D 4=T */
+#define CFG_USE_FLOAT_PRINT    0    /* 恒为 0：禁止 printf 浮点 */
+#define CFG_ALARM_ENABLE       1    /* 0 = 全局静音（调试用） */
+#define CFG_FALL_ENABLE        1    /* 0 = 关闭跌倒检测 */
+#define CFG_ADV_GUIDE_EN       0    /* ★预留：高级牵引（SPIN/ARC/TURN_TO）默认关 */
+#define CFG_US_MODE            0    /* 0 = UART(US-100)  1 = TRIG_ECHO(HC-SR04) */
+#define CFG_US_SECOND_EN       0    /* ★预留：第二路超声波 */
+#define CFG_MAG_ENABLE         1    /* 磁力计读数据（不做航向业务） */
+#define CFG_BT_MIRROR_SHELL    0    /* 日志镜像到蓝牙 */
+#define CFG_ENABLE_NV_SAVE     0    /* ★预留：参数写 Flash */
+#define CFG_BUZZER_ACTIVE_LOW  1    /* 1 = 低电平触发（与 CubeMX 初值 HIGH 对应） */
+#define CFG_KEY_COUNT          2    /* v1 = SOS + MODE；补配 PB4/PB5 后改 4 */
+#define CFG_OLED_ENABLE        1    /* 0 = 完全不碰 OLED（无屏调试） */
 
 /* ---------- 运行期参数（g_cfg） ---------- */
 typedef struct {
-    /* 周期（ms） */
-    uint16_t imu_period_ms, us_period_ms, batt_period_ms, ui_period_ms;
+  /* 周期（ms） */
+  uint16_t imu_period_ms, us_period_ms, batt_period_ms, ui_period_ms;
 
-    /* 避障（mm / ms） */
-    uint16_t avoid_slow_mm;       /* 默认 1200  进入减速 */
-    uint16_t avoid_stop_mm;       /* 默认  400  停车 */
-    uint16_t avoid_hyst_mm;       /* 默认  200  回滞（停车后退出需 > stop+hyst） */
-    uint16_t avoid_invalid_ms;    /* 默认  300  无效数据超时 → 按停车处理 */
-    uint16_t avoid_beep_ms;       /* 默认  700  减速提示间隔 */
+  /* 避障（mm / ms） */
+  uint16_t avoid_slow_mm;      /* 默认 1200  进入减速 */
+  uint16_t avoid_stop_mm;      /* 默认  400  停车 */
+  uint16_t avoid_hyst_mm;      /* 默认  200  回滞（停车后退出需 > stop+hyst） */
+  uint16_t avoid_invalid_ms;   /* 默认  300  无效数据超时 → 按停车处理 */
+  uint16_t avoid_beep_ms;      /* 默认  700  减速提示间隔 */
 
-    /* 牵引（占空比刻度 0~1000） */
-    uint16_t guide_base_duty;     /* 默认  600  直行基础速度 */
-    uint16_t motor_max_duty;      /* 默认  700  ★限速上限（保护 L298N） */
-    uint16_t motor_min_duty;      /* 默认  120  死区（低于此值不转，避免嗡鸣） */
-    uint16_t motor_ramp_per10ms;  /* 默认   40  软启动斜率 */
-    int16_t  motor_trim_l;        /* 默认    0  左轮补偿（直行偏航标定） */
-    int16_t  motor_trim_r;        /* 默认    0  右轮补偿 */
-    uint8_t  motor_l_invert;      /* 默认    0  左电机接线极性反了改 1 */
-    uint8_t  motor_r_invert;      /* 默认    0  右电机 */
+  /* 牵引（占空比刻度 0~1000） */
+  uint16_t guide_base_duty;    /* 默认  600  直行基础速度 */
+  uint16_t motor_max_duty;     /* 默认  700  ★限速上限（保护 L298N） */
+  uint16_t motor_min_duty;     /* 默认  120  死区（低于此值不转，避免嗡鸣） */
+  uint16_t motor_ramp_per10ms; /* 默认   40  软启动斜率 */
+  int16_t  motor_trim_l;       /* 默认    0  左轮补偿（直行偏航标定） */
+  int16_t  motor_trim_r;       /* 默认    0  右轮补偿 */
+  uint8_t  motor_l_invert;     /* 默认    0  左电机接线极性反了改 1 */
+  uint8_t  motor_r_invert;     /* 默认    0  右电机 */
 
-    /* 跌倒（mg / 0.1° / ms） */
-    uint16_t fall_freefall_mg;    /* 默认  400  (0.40g) */
-    uint16_t fall_freefall_ms;    /* 默认   30 */
-    uint16_t fall_impact_mg;      /* 默认 2200  (2.20g) */
-    uint16_t fall_tilt_deg10;     /* 默认  550  (55.0°) */
-    uint16_t fall_confirm_ms;     /* 默认 2000 */
-    uint16_t fall_cooldown_ms;    /* 默认 10000 */
+  /* 跌倒（mg / 0.1° / ms） */
+  uint16_t fall_freefall_mg;   /* 默认  400  (0.40g) */
+  uint16_t fall_freefall_ms;   /* 默认   30 */
+  uint16_t fall_impact_mg;     /* 默认 2200  (2.20g) */
+  uint16_t fall_tilt_deg10;    /* 默认  550  (55.0°) */
+  uint16_t fall_confirm_ms;    /* 默认 2000 */
+  uint16_t fall_cooldown_ms;   /* 默认 10000 */
 
-    /* 电池（mV / 分压比 ×10000） */
-    uint32_t batt_div_ratio_x1e4; /* 默认 43000 (=4.3000) */
-    uint16_t batt_low_mv;         /* 默认 10500 */
-    uint16_t batt_crit_mv;        /* 默认  9900 */
-    uint8_t  batt_avg_n;          /* 默认     8 */
+  /* 电池（mV / 分压比 ×10000） */
+  uint32_t batt_div_ratio_x1e4;/* 默认 43000 (=4.3000) */
+  uint16_t batt_low_mv;        /* 默认 10500 */
+  uint16_t batt_crit_mv;       /* 默认  9900 */
+  uint8_t  batt_avg_n;         /* 默认     8 */
 
-    /* 按键（ms） */
-    uint16_t key_debounce_ms;     /* 默认   20 */
-    uint16_t key_long_ms;         /* 默认 1000 */
-    uint16_t key_vlong_ms;        /* 默认 3000 */
+  /* 按键（ms） */
+  uint16_t key_debounce_ms;    /* 默认   20 */
+  uint16_t key_long_ms;        /* 默认 1000 */
+  uint16_t key_vlong_ms;       /* 默认 3000 */
 
-    /* 报警 */
-    uint16_t alarm_dedup_ms;      /* 默认 5000 */
+  /* 报警 */
+  uint16_t alarm_dedup_ms;     /* 默认 5000 */
 
-    /* 磁力计校准（×100，整数避免浮点） */
-    int16_t  mag_off_x100[3];
-    uint16_t mag_scale_x100[3];
+  /* 磁力计校准（×100，整数避免浮点） */
+  int16_t  mag_off_x100[3];
+  uint16_t mag_scale_x100[3];
 } cfg_t;
 
 extern cfg_t g_cfg;
@@ -371,7 +373,7 @@ err_t us_selftest(char *out, uint16_t n);
 
 | 项 | 规定 |
 |---|---|
-| 缩进 | **4 空格**，禁止 Tab |
+| 缩进 | **2 空格**，禁止 Tab（与用户 Keil5 编辑器设置一致：`Edit → Configuration → Editor → Tab size = 2`，并勾选 Insert spaces 或直接不用 Tab） |
 | 行宽 | ≤ 100 字符 |
 | 大括号 | K&R（控制语句与函数左括号**不换行**）；即使只有一条语句也加 `{}` |
 | 空格 | `if (a == b)`、`for (i = 0; i < n; i++)`、`f(a, b)`、`p->x` |
@@ -410,8 +412,16 @@ err_t us_selftest(char *out, uint16_t n);
 | 堆 | **0**（不用 `malloc`） | — |
 | 单个 `update()` | < 2 ms | 拆成多步状态机 |
 
-**编译设置**：Keil `Options for Target → C/C++ → Optimization = -O1`（调试够用、体积可控）；
-C99；勾选 `One ELF Section per Function`（配合 `--remove` 链接裁剪）；不使用 MicroLIB 之外的库。
+**编译设置（2026-09-24 按实际工程核对）**：入口工程 `demo/HAL_SMART_STICK/MDK-ARM/HAL_OLED.uvprojx`
+
+| 项 | 实际值 | 说明 |
+|---|---|---|
+| Optimization | **Level 3 (-O3)**，未开 `-Otime` | CubeMX 生成值，暂保持；若后期 Flash 吃紧或需单步调试，降到 `-O1` 更稳 |
+| C99 | ✅ 已勾 | — |
+| One ELF Section per Function | ✅ 已勾 | 未用到的函数不进 Flash |
+| 宏定义 | `USE_HAL_DRIVER, STM32F103xB` | 不要改 |
+| Stack / Heap | 0x400 (1KB) / 0x200 (0.5KB) | 我们不用 `malloc`，Heap 可留可清零 |
+| 基线体积（实测） | **Flash 9.57 KB / RAM 2.09 KB** | 含 HAL + OLED + Delay + Key；预算见第 11 节 |
 
 ---
 

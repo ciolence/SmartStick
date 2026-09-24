@@ -18,13 +18,15 @@
 
 ---
 
-## 2. `demo/SmartStick` 目录规划（我定，阶段 3/4 照此执行）
+## 2. 工程目录规划（阶段 3 已落地，阶段 4 照此执行）
 
-CubeMX 生成 `Core/Inc`、`Core/Src`、`MDK-ARM` 之后，我在里面加一棵 **`user/` 子树**（CubeMX 不认识它，**永不覆盖**）：
+**实际工程**：`demo/HAL_SMART_STICK/`，CubeMX/Keil 工程名 **`HAL_OLED`**（沿用既有模板名，不改名）。
+`Core/Inc`、`Core/Src` **根下已有用户既有的** `OLED.c/h`、`OLED_Font.h`、`Delay.c/h`、`Key.c/h`（原模板自带，Keil 里挂在 `Hardware` / `System` 分组）——**这些文件不迁不删**，处置见第 5 节。
+阶段 4 我在 `Core/` 下新增一棵 **`user/` 子树**（CubeMX 不认识它，**永不覆盖**）：
 
 ```
-demo/SmartStick/
-├── SmartStick.ioc                          # CubeMX 配置（用户维护）
+demo/HAL_SMART_STICK/
+├── HAL_OLED.ioc                            # CubeMX 配置（用户维护）
 ├── Core/
 │   ├── Inc/
 │   │   ├── main.h  gpio.h  i2c.h  tim.h  usart.h  adc.h   # CubeMX 生成，只改 USER CODE 区
@@ -146,7 +148,7 @@ err_t              imu_selftest(char *out, uint16_t n);/* 自测：返回 ERR_OK
 | 驱动 | 关键接口 | 数据结构要点 |
 |---|---|---|
 | `drv_motor` | `motor_init/update/motor_set(l_dir,l_duty,r_dir,r_duty)/motor_stop(mode)/motor_selftest` | `duty ∈ [0,1000]`；`mode = 滑行 / 刹车`；内部做软启动斜坡与限速 |
-| `drv_us` | `us_init/update/us_data/us_selftest/us_set_mode` | `uint16_t mm`、`valid`、`last_err`；支持 `CFG_US_MODE = UART / TRIG_ECHO` |
+| `drv_us` | `us_init/update/us_data/us_selftest/us_set_mode` | **TRIG_ECHO（HC-SR04，v1 主线）**：TRIG 发 10µs 脉冲 → ECHO 双边沿 EXTI 记 TIM4(1MHz) 时间戳 → `mm = µs / 58`；支持 1~2 路（**顺序触发**防串扰）；缓存 `uint16_t mm`、`valid`、`last_err`；UART 模式代码保留（`CFG_US_MODE`）以备换型 |
 | `drv_imu` | `imu_init/update/imu_data/imu_selftest` | `acc[3](mg)`、`gyro[3](0.1°/s)`、`angle_cf[2](0.1°，互补滤波输出)`、`valid`、`sample_ms` |
 | `drv_mag` | `mag_init/update/mag_data/mag_selftest/mag_cal_start/mag_cal_status` | `xyz[3](0.1µT)`、`cal_offset[3]`、`cal_state`；**不做航向** |
 | `drv_oled` | `oled_init/oled_clear/oled_flush/oled_text(x,y,str)/oled_num(x,y,val,unit)/oled_selftest` | 128×64 帧缓冲；适配层（见 5.1） |
@@ -156,28 +158,56 @@ err_t              imu_selftest(char *out, uint16_t n);/* 自测：返回 ERR_OK
 
 ---
 
-## 5. 两处需要用户参与的接口
+## 5. 既有第三方文件的接口与处置（2026-09-24 读码确认）
 
-### 5.1 OLED：适配层设计（用户提供驱动）
+### 5.1 OLED 适配层（用户驱动已到位）
 
-我方只写 **`drv_oled.c` 适配层**，它对外提供上面那套接口，对内调用**用户提供的驱动**。需要用户驱动提供的最小 API（四选一即可，能对上就够）：
+**现状（逐行读码结论）：**
 
-| 我方期望的底层函数 | 用途 | 若你的驱动是别的形式 |
+| 项 | 实际情况 | 判定 |
 |---|---|---|
-| `oled_hw_init(void)` | 初始化（发命令序列） | 名字不同 → 我方在适配层写一行 `#define` 映射 |
-| `oled_write_cmd(uint8_t)` / `oled_write_data(uint8_t)` | 写命令 / 写数据 | 若是 `oled_write(cmd, data[], len)` 形式也可以 |
-| 是否自带帧缓冲？ | 有则直接用；无则我方在适配层自建 1KB 帧缓冲 | 两种都支持 |
+| 接口 | `OLED_Init/Clear/ShowChar/ShowString/ShowNum/ShowSignedNum/ShowHexNum/ShowBinNum/WriteCommand/SetCursor/WriteData`（`OLED.h`） | ✅ 够用 |
+| I²C 方式 | **硬件 I²C1**：`HAL_I2C_Mem_Write(&hi2c1, 0x78, 0x00/0x40, I2C_MEMADD_SIZE_8BIT, …)` —— **无引脚冲突** | ✅ 好消息 |
+| 从机地址 | `0x78`（8 位）= **0x3C**（7 位） | ✅ 与 PINOUT 一致 |
+| 控制器/分辨率 | 初始化序列 = **SSD1306 128×64** 标准序列（0xA8/0x3F、0xDA/0x12、0x8D/0x14、0xAF） | ⚠️ 若实物是 1.3" **SH1106** 需列偏移 2（待你确认） |
+| 帧缓冲 | **无**：每个字节一次 I²C 事务（`OLED_Clear()` = 1024 次事务，约 100~200ms） | ⚠️ 不能直接用于周期刷新 |
+| 单次超时 | 每次写入超时 `0x100` = **256ms** | ⚠️ 屏不在时会长时间阻塞 |
 
-**开始阶段 4 时我会问你的 4 个问题**（现在不用答）：
-1. 控制器是 **SSD1306** 还是 **SH1106**？（SH1106 需要列偏移 2，否则显示错位）
-2. 分辨率 **128×64** 还是 128×32？
-3. 驱动是**硬件 I²C** 还是**软件模拟 I²C**？（我们用硬件 I²C1 / PB6/PB7）
-4. 驱动里 7 位地址用的 **0x3C** 还是 0x3D？
+**`drv_oled.c`（我方适配层）的设计：**
 
-### 5.2 蓝牙：只做骨架
+1. **先探测再初始化**：`HAL_I2C_IsDeviceReady(&hi2c1, 0x78, 3, 5)`（5ms 超时）确认屏在线，再调用用户的 `OLED_Init()`；不在线 → 记 `ERR_OLED_INIT`，**不阻断启动**，且此后**不再调用任何 OLED 函数**（避免每次 256ms 超时）。
+2. **自建 1KB 帧缓冲**（8 页 × 128 字节），对外提供行/列语义的文本接口。
+3. **按页批量写**：`HAL_I2C_Mem_Write(&hi2c1, 0x78, 0x40, …, page_buf, 128, 5)` —— 129 字节/事务 ≈ **2.9ms/页**（400kHz），全屏 8 页 ≈ 23ms；带**脏页标记**，常规刷新只写 1~2 页。
+4. **时间预算**：`ui_task` 每 200ms 最多刷 **1 页**（≈2.9ms），是本工程**唯一允许超过 2ms 的 update()**（第 10 节红线里登记为例外）。
+5. **`main.c` 的相应调整**：原 `USER CODE 2` 里的 `OLED_Init();` 一行**移入 `app_init()`**（由 `drv_oled_init()` 在探测通过后调用），`USER CODE 2` 只保留 `app_init();`。
+6. 用户的 `OLED.c` 继续用于**上电初始化**（其内部会清屏一次），运行时渲染全部走批量路径。
+
+**待你确认的唯一一点**：实物屏是 **SSD1306（0.96"）** 还是 **SH1106（1.3"）**。
+
+### 5.2 `Delay.c` 改造（必须做，属缺陷修复）
+
+**现状**：`Delay_us()` 直接改 `SysTick->LOAD/VAL/CTRL`，并在结尾 `CTRL=0x04` **把 SysTick 停掉**；过程中 `TICKINT=0` 也**关掉了 1ms 中断**。后果：`HAL_GetTick()` / `HAL_Delay()` 从此失效 → HAL 超时机制、我们的调度器全部不工作。
+
+**处置（阶段 4 第一步就做，函数名与 `Delay.h` 保持不变）：**
+
+| 函数 | 新实现 |
+|---|---|
+| `Delay_us(x)` | 读 **TIM4** 自由运行计数（1MHz）做差值忙等（回绕安全） |
+| `Delay_ms(x)` | `HAL_GetTick()` 轮询等待 |
+| `Delay_s(x)` | 复用 `Delay_ms` |
+
+> 改造后用户既有代码（若将来引用 Delay）行为不变，但不再破坏系统时基。
+
+### 5.3 `Key.c` 处置
+
+`Key.c` 只有一个 `read_KeyState()`：阻塞式 `HAL_Delay(20)` 去抖，无事件、无长按识别。→ **不纳入 v1 业务**（文件与 Keil 分组保留，链接器会自动丢弃未引用代码）。按键功能由 `drv_key` 提供**非阻塞**去抖 + 短按/长按/超长按事件。
+
+v1 实际可用按键 **2 个**：`SOS_KEY`(PA11)、`MODE_KEY`(PA12)；`KEY3`(PB4)/`KEY4`(PB5) 未配置，代码用 `CFG_KEY_COUNT=2` 编译期裁剪。
+
+### 5.4 蓝牙：只做骨架
 
 `drv_bt`（在 `bsp_uart` 之上，与 shell 共用解析器）：
-- v1 提供：初始化 9600、收字节进环形缓冲、把 shell 输出同时镜像到蓝牙（`CFG_BT_MIRROR_SHELL` 默认 **关**，避免乱码刷屏）。
+- v1 提供：初始化 9600、收字节进环形缓冲、把 shell 输出镜像到蓝牙（`CFG_BT_MIRROR_SHELL` 默认 **关**）。
 - v1 **不提供**任何手机业务协议；手机侧软件后期另做。
 - 预留升级点：`bt_on_line()` 钩子 → 将来接"上报接口"（第 11 节）。
 
@@ -199,7 +229,10 @@ err_t              imu_selftest(char *out, uint16_t n);/* 自测：返回 ERR_OK
 | SysTick | HAL 1ms 节拍 | 已有 |
 | USART1 RX | 收 1 字节 → shell 环形缓冲 → 立即重新武装接收 | < 2µs |
 | USART3 RX | 收 1 字节 → 蓝牙环形缓冲 → 重新武装 | < 2µs |
-| （预留）TIM2_CH2 / EXTI | 第二路超声波 Echo 边沿打时间戳 | 阶段 4 加 |
+| **EXTI1（超声波 #1 ECHO）** | 读 `__HAL_TIM_GET_COUNTER(&htim4)` 存边沿时间戳；上升沿存 `t_rise`，下降沿算 `t_fall - t_rise` → µs → mm | **< 3µs**（纯寄存器读写，不做换算、不调日志） |
+| （预留）EXTI2/EXTI3 或 EXTI9_5 | 第二路超声波 ECHO 同法 | 阶段 4 后段（`CFG_US_SECOND_EN=1` 时启用） |
+
+> **为什么 ISR 里只存时间戳**：HC-SR04 的 ECHO 下降沿到下一次测距之间有 ≥20ms 空闲，换算（÷58、中值滤波）完全可以放到 20ms 周期的 `us_update` 任务里做；ISR 越短，越不怕与其他中断抢占。
 
 **实现方式**：`bsp_uart.c` 里调 `HAL_UART_Receive_IT()`，并实现 `HAL_UART_RxCpltCallback()`（HAL 弱函数覆盖）。
 → **好处：完全不用改 `stm32f1xx_it.c`**，CubeMX 重新生成也不影响我们。
@@ -211,7 +244,7 @@ err_t              imu_selftest(char *out, uint16_t n);/* 自测：返回 ERR_OK
 | `shell_poll` | 10 ms | svc | 从环形缓冲取一行 → 解析 → 执行 |
 | `key_scan` | 20 ms | drv_key | 去抖、产生短按/长按事件 |
 | `imu_update` | 20 ms | drv_imu | 读 14 字节 → 单位换算 → 互补滤波（50Hz） |
-| `us_update` | 50 ms | drv_us | 触发一次测距 → 读回波（20Hz） |
+| `us_update` | **80 ms** | drv_us | 触发一次测距 → EXTI 已记好时间戳 → 换算 mm + 3 点中值滤波（HC-SR04 数据手册要求测距周期 ≥60ms，80ms 留余量；两路时交替触发） |
 | `batt_update` | 500 ms | drv_batt | ADC 采样 + 滑动平均 |
 | `fall_task` | 20 ms | app_fall | 跌倒状态机推进 |
 | `avoid_task` | 20 ms | app_avoid | 避障分级判定，输出速度系数 |
@@ -430,10 +463,12 @@ motor_set(MOTOR_L, DIR_FWD, duty_l);  motor_set(MOTOR_R, DIR_FWD, duty_r);
 
 | 项 | 预算 | 控制手段 |
 |---|---|---|
-| Flash 总量 | **≤ 50 KB**（留 14KB） | 不引 printf 浮点（`CFG_USE_FLOAT_PRINT=0`）、手写 OLED 驱动、不做 DMP |
-| 我们代码的 Flash | ≤ 30 KB | 单一职责小函数、表格化 pattern、避免字库（ASCII 8×16 点阵 ~1.5KB 可接受） |
-| RAM 总量 | **≤ 10 KB / 20 KB** | 无动态分配、环形缓冲各 128B、OLED 帧缓冲 1KB、栈 1KB |
-| 单个 `update()` 耗时 | < 2 ms | I²C/ADC 超时 5ms，超声波超时 30ms（在 50ms 周期任务内可接受，但会记录超时） |
+| **实测基线**（阶段 3 工程） | **Flash 9.57 KB / RAM 2.09 KB** | 含 HAL + 用户既有 OLED/Delay/Key —— 余量充足 |
+| Flash 总量 | **≤ 50 KB / 64 KB** | 不引 printf 浮点（`CFG_USE_FLOAT_PRINT=0`）、不做 DMP、不用 u8g2 |
+| 我们代码的 Flash | ≤ 30 KB | 单一职责小函数、表格化 pattern；字库复用用户既有 `OLED_Font.h`（8×16，约 1.5KB，已计入基线） |
+| RAM 总量 | **≤ 10 KB / 20 KB** | 无动态分配、环形缓冲各 128B、**OLED 帧缓冲 1KB**、栈 1KB |
+| 单个 `update()` 耗时 | < 2 ms | I²C/ADC 超时 5ms；超声波超时 30ms（50ms 周期内可接受，但会记超时） |
+| **唯一例外** | `drv_oled` 单页批量写 ≈ **2.9 ms** | 400kHz 下 129 字节/事务的物理极限；`ui_task` 每 200ms **最多刷 1 页**（CPU 占用 < 1.5%），见 5.1 |
 | ISR 时长 | < 5 µs | ISR 只搬字节 |
 | 栈 | ≥ 1 KB（Keil 默认 0x400，我们在 `startup_stm32f103xb.s` 里确认） | 禁止递归、禁止大数组局部变量 |
 
