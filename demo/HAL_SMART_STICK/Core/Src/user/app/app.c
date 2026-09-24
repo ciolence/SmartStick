@@ -2,11 +2,16 @@
  * @file    app.c
  * @brief   应用初始化与主循环（上电顺序见 ARCHITECTURE.md 6.4）
  * @note    原则：任何"非安全关键"外设初始化失败都不允许卡死启动；只记错误码 + 日志。
- *          电机子系统是唯一例外：初始化失败即禁止一切运动（阶段 4-D 由 FSM 接管为 ST_FAULT）。
+ *          电机子系统是唯一例外：初始化失败 → 直接进 ST_FAULT（禁止一切运动）。
  * @version 0.1  (2026-09-24)
  */
 #include "app.h"
 #include "app_ui.h"
+#include "app_fsm.h"
+#include "app_avoid.h"
+#include "app_fall.h"
+#include "app_guide.h"
+#include "app_alarm.h"
 #include "svc_log.h"
 #include "svc_sched.h"
 #include "svc_shell.h"
@@ -29,11 +34,9 @@
 #define LOG_TAG "APP "
 
 /* ==================== 状态/静音查询（供 UI 显示） ==================== */
-static const char *s_state_name = "IDLE";      /* 阶段 4-D 由 app_fsm 更新 */
-
 const char *app_state_str(void)
 {
-  return s_state_name;
+  return app_fsm_state_str();
 }
 
 uint8_t alarm_muted(void)
@@ -45,13 +48,13 @@ uint8_t alarm_muted(void)
  * 调度器任务签名是 void(void)，而驱动的 update 返回 err_t（错误已在驱动内部记账），
  * 这里用一行包装函数转换，避免在调度器里引入返回值语义。
  */
-static void app_motor_task(void) { (void)motor_update(); }
-static void app_alarm_task(void) { (void)alarm_update(); }
-static void app_us_task(void)    { (void)us_update();    }
-static void app_batt_task(void)  { (void)batt_update();  }
-static void app_key_task(void)   { (void)key_update();   }
-static void app_imu_task(void)   { (void)imu_update();   }
-static void app_mag_task(void)   { (void)mag_update();   }
+static void app_motor_task(void) { (void)motor_update();  }
+static void app_alarm_task(void) { (void)alarm_update();  }
+static void app_us_task(void)    { (void)us_update();     }
+static void app_batt_task(void)  { (void)batt_update();   }
+static void app_key_task(void)   { (void)key_update();    }
+static void app_imu_task(void)   { (void)imu_update();    }
+static void app_mag_task(void)   { (void)mag_update();    }
 
 void app_hb_task(void)
 {
@@ -80,6 +83,7 @@ static void app_i2c_report(void)
 void app_init(void)
 {
   err_t e;
+  uint8_t motor_ok = 1u;
 
   /* 1. 日志（最先行，后面所有步骤的失败才有人报） */
   svc_log_init();
@@ -117,7 +121,8 @@ void app_init(void)
   e = motor_init();
   if (e != ERR_OK) {
     err_record(MOD_MOTOR, e);
-    LOG_E(LOG_TAG, "motor_init failed: %s -> motion disabled", err_str(e));
+    LOG_E(LOG_TAG, "motor_init failed: %s -> MOTION DISABLED", err_str(e));
+    motor_ok = 0u;
   } else {
     (void)motor_shell_register();
   }
@@ -179,8 +184,7 @@ void app_init(void)
   e = mag_init();
   if (e != ERR_OK) {
     err_record(MOD_MAG, e);
-    LOG_W(LOG_TAG, "mag_init failed: %s (P2 feature)",
-          err_str(e));
+    LOG_W(LOG_TAG, "mag_init failed: %s (P2 feature)", err_str(e));
   } else {
     (void)mag_shell_register();
   }
@@ -193,7 +197,15 @@ void app_init(void)
     app_ui_boot_screen();
   }
 
-  /* 13. 任务注册 */
+  /* 13. 业务层：状态机 + 命令注册 */
+  app_fsm_init();
+  (void)app_fsm_shell_register();          /* sys 命令 */
+  (void)app_guide_shell_register();        /* guide 命令（含绕行开关与调参） */
+  if (motor_ok == 0u) {
+    (void)app_fsm_cmd("fault");            /* 电机不可用 → 禁止运动 */
+  }
+
+  /* 14. 任务注册（依赖关系：motor 在 guide 之前、avoid 在 guide 之前） */
   svc_sched_init();
   (void)svc_sched_add("shell",  svc_shell_task,  10u);
   (void)svc_sched_add("motor",  app_motor_task,  10u);   /* 软启动斜坡/换向保护 */
@@ -201,16 +213,22 @@ void app_init(void)
   (void)svc_sched_add("us",     app_us_task,     20u);   /* 内部按 us_period_ms 节流触发 */
   (void)svc_sched_add("key",    app_key_task,    20u);   /* 去抖 + 事件 */
   (void)svc_sched_add("imu",    app_imu_task, (uint32_t)g_cfg.imu_period_ms);
+  (void)svc_sched_add("fsm",    app_fsm_task,    20u);   /* 状态迁移（按键/跌倒/降级） */
+  (void)svc_sched_add("avoid",  app_avoid_task,  20u);   /* 避障分级 */
+  (void)svc_sched_add("fall",   app_fall_task,   20u);   /* 跌倒检测 */
+  (void)svc_sched_add("guide",  app_guide_task,  50u);   /* 牵引输出（含绕行） */
+  (void)svc_sched_add("palm",   app_alarm_task, 100u);   /* 报警策略 */
   (void)svc_sched_add("ui",     app_ui_task,  (uint32_t)g_cfg.ui_period_ms);
   (void)svc_sched_add("batt",   app_batt_task, (uint32_t)g_cfg.batt_period_ms);
   (void)svc_sched_add("mag",    app_mag_task,   100u);
   (void)svc_sched_add("bt",     bt_task,        100u);
   (void)svc_sched_add("hb",     app_hb_task,    500u);   /* 心跳灯 1Hz */
 
-  LOG_I(LOG_TAG, "app_init done, %u task(s) running", (unsigned)svc_sched_count());
-  LOG_I(LOG_TAG, "tips: help | us | imu | batt | key | oled | mag | bt | motor | alarm | cfg | err | tasks");
+  LOG_I(LOG_TAG, "app_init done: %u task(s), state=%s, detour=%ld",
+        (unsigned)svc_sched_count(), app_fsm_state_str(), (long)g_cfg.detour_enable);
+  LOG_I(LOG_TAG, "tips: guide start|stop|status|detour 0|1|spin L|R [ms] | sys | us | imu | batt | key | mag | bt | motor | alarm | cfg | err | tasks");
 
-  /* 14. 就绪提示音（两短声）：听得见就说明蜂鸣器通路 OK */
+  /* 15. 就绪提示音（两短声）：听得见就说明蜂鸣器通路 OK */
   (void)alarm_play(ALARM_EV_BOOT_OK);
 }
 

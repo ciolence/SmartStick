@@ -10,7 +10,7 @@
 #include <stdint.h>
 #include "err.h"
 
-#define SCHED_MAX_TASKS   16u
+#define SCHED_MAX_TASKS   20u
 #define SCHED_NAME_MAX    12u
 
 typedef void (*sched_fn_t)(void);

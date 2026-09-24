@@ -38,6 +38,16 @@ static const cfg_item_t s_items[] = {
   CFG_ITEM(avoid_hyst_mm,         0,    2000, "mm"),
   CFG_ITEM(avoid_invalid_ms,     50,    3000, "ms"),
   CFG_ITEM(avoid_beep_ms,       100,    5000, "ms"),
+  CFG_ITEM(avoid_min_scale,     100,    1000, "permille"),
+  CFG_ITEM(avoid_stuck_ms,      200,   30000, "ms"),
+  /* ★绕行（现场调参最常动的 7 个） */
+  CFG_ITEM(detour_enable,         0,       1, "0/1"),
+  CFG_ITEM(detour_spin_ms,      100,    5000, "ms"),
+  CFG_ITEM(detour_spin_duty,      0,    1000, "duty"),
+  CFG_ITEM(detour_fwd_ms,       100,   10000, "ms"),
+  CFG_ITEM(detour_retry,          0,      10, "times"),
+  CFG_ITEM(detour_cooldown_ms,  500,   60000, "ms"),
+  CFG_ITEM(detour_recheck_mm,   200,    5000, "mm"),
   /* 牵引 */
   CFG_ITEM(guide_base_duty,       0,    1000, "duty"),
   CFG_ITEM(motor_max_duty,        0,    1000, "duty"),
@@ -90,6 +100,16 @@ void cfg_load_defaults(void)
   g_cfg.avoid_hyst_mm        = 200;
   g_cfg.avoid_invalid_ms     = 300;
   g_cfg.avoid_beep_ms        = 700;
+  g_cfg.avoid_min_scale      = 250;
+  g_cfg.avoid_stuck_ms       = 2000;
+  /* ★绕行（默认关闭：现场 cfg set detour_enable 1 启用） */
+  g_cfg.detour_enable        = 0;
+  g_cfg.detour_spin_ms       = 700;
+  g_cfg.detour_spin_duty     = 450;
+  g_cfg.detour_fwd_ms        = 900;
+  g_cfg.detour_retry         = 3;
+  g_cfg.detour_cooldown_ms   = 3000;
+  g_cfg.detour_recheck_mm    = 600;
   /* 牵引 */
   g_cfg.guide_base_duty      = 600;
   g_cfg.motor_max_duty       = 700;

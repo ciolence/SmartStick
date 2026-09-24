@@ -53,6 +53,17 @@ typedef struct {
   int32_t avoid_hyst_mm;         /* 200   回滞（停车后退出需 > stop+hyst） */
   int32_t avoid_invalid_ms;      /* 300   无效数据超时 → 按停车处理 */
   int32_t avoid_beep_ms;         /* 700   减速提示间隔 */
+  int32_t avoid_min_scale;       /* 250   减速档的最低速度系数（千分比） */
+  int32_t avoid_stuck_ms;        /* 2000  停车持续这么久 → 视为"被挡住"，触发绕行 */
+
+  /* ★绕行（v1 已实现，默认关闭：cfg set detour_enable 1 启用；参数现场可调） */
+  int32_t detour_enable;         /* 0     1 = 启用绕行；0 = 遇障仅停车 */
+  int32_t detour_spin_ms;        /* 700   一次原地转向时长 */
+  int32_t detour_spin_duty;      /* 450   转向速度（占空比刻度） */
+  int32_t detour_fwd_ms;         /* 900   转向后直行试探时长 */
+  int32_t detour_retry;          /* 3     单侧最多试探次数（超过则报警停车） */
+  int32_t detour_cooldown_ms;    /* 3000  两次绕行之间的最短间隔 */
+  int32_t detour_recheck_mm;     /* 600   认为"前方已通"的距离门限（应 > stop+hyst） */
 
   /* 牵引（占空比刻度 0~1000） */
   int32_t guide_base_duty;       /* 600   直行基础速度 */
