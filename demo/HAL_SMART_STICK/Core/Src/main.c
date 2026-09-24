@@ -26,10 +26,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "Delay.h"
-
-#include "OLED.h"
-
+#include "app.h"          /* 我们的唯一入口：app_init() / app_poll() */
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -101,8 +98,7 @@ int main(void)
   MX_USART2_UART_Init();
   MX_USART3_UART_Init();
   /* USER CODE BEGIN 2 */
-	OLED_Init();
-
+  app_init();          /* 我们的全部初始化：日志/参数/BSP/服务/任务注册 */
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -112,7 +108,7 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-
+    app_poll();        /* 合作式调度器：执行所有到点任务 */
   }
   /* USER CODE END 3 */
 }

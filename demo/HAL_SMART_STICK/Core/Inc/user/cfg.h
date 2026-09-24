@@ -32,6 +32,12 @@
 #define CFG_OLED_ENABLE        1        /* 0 = 完全不碰 OLED（无屏调试） */
 #define CFG_OLED_PROBE_MS      5        /* OLED 在线探测超时 */
 
+/* 固件版本（banner / ver 命令） */
+#define CFG_FW_VERSION         "v0.1.0"
+
+/* 电机换向保护：前进<->后退 切换时先滑行这么久再上电（H 桥保护） */
+#define CFG_MOTOR_REV_DELAY_MS 60u
+
 /* ==================== 运行期参数 ==================== */
 typedef struct {
   /* 任务周期（ms） */
